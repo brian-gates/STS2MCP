@@ -87,7 +87,43 @@ public static partial class McpMod
             "crystal_sphere_set_tool" => ExecuteCrystalSphereSetTool(data),
             "crystal_sphere_click_cell" => ExecuteCrystalSphereClickCell(data),
             "crystal_sphere_proceed" => ExecuteCrystalSphereProceed(),
+            "console" => ExecuteConsole(data),
             _ => Error($"Unknown action: {action}")
+        };
+    }
+
+    // Runs a dev-console command (the same text you'd type after the ` key) through the game's own
+    // DevConsole, so setups like `power POISON_POWER 10 1` or `potion FIRE_POTION` can be scripted.
+    private static Dictionary<string, object?> ExecuteConsole(Dictionary<string, JsonElement> data)
+    {
+        if (!data.TryGetValue("command", out var cmdEl) || cmdEl.ValueKind != JsonValueKind.String
+            || string.IsNullOrWhiteSpace(cmdEl.GetString()))
+            return Error("console requires a 'command' string");
+
+        var tree = Godot.Engine.GetMainLoop() as SceneTree;
+        var node = tree?.Root != null ? FindFirst<MegaCrit.Sts2.Core.Nodes.Debug.NDevConsole>(tree.Root) : null;
+        if (node == null)
+            return Error("Dev console not found");
+        var field = typeof(MegaCrit.Sts2.Core.Nodes.Debug.NDevConsole).GetField("_devConsole",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
+        if (field?.GetValue(node) is not MegaCrit.Sts2.Core.DevConsole.DevConsole console)
+            return Error("Dev console not initialized");
+
+        object? result = console.ProcessCommand(cmdEl.GetString()!);
+        // CmdResult is undocumented; surface its public fields/properties (success flag, message, ...) as-is.
+        var fields = new Dictionary<string, object?>();
+        if (result != null)
+        {
+            var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public;
+            foreach (var f in result.GetType().GetFields(flags)) fields[f.Name] = f.GetValue(result)?.ToString();
+            foreach (var pr in result.GetType().GetProperties(flags))
+                if (pr.GetIndexParameters().Length == 0) fields[pr.Name] = pr.GetValue(result)?.ToString();
+        }
+        return new Dictionary<string, object?>
+        {
+            ["status"] = "ok",
+            ["message"] = $"Ran: {cmdEl.GetString()}",
+            ["result"] = fields,
         };
     }
 
