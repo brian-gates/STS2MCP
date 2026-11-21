@@ -206,14 +206,14 @@ async def menu_select(option: str, seed: str | None = None) -> str:
     Ascension ("character_select" and "custom_run"): "ascension_up" /
     "ascension_down" move the level by one and are advertised only while that
     direction is available; the state's `ascension` block carries level and max.
-    The `selected` block reflects the current character and enabled modifier ids.
+    The `selected` block reflects the current character and the keys of the enabled modifiers.
 
     Args:
         option: Option ID from the current menu state's options list. If an
             option is listed under blocked_options, selecting it returns the
             API's manual-action response instead of forcing UI entry.
         seed: Optional seed for supported embark flows (custom run, multiplayer
-            lobbies, daily). Standard mode rejects seeds.
+            lobbies, daily). Standard singleplayer character select rejects seeds.
     """
     body: dict = {"action": "menu_select", "option": option}
     if seed is not None:

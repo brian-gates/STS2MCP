@@ -1644,8 +1644,13 @@ public static partial class McpMod
             option,
             seed,
             runNoun: "run",
-            noLobbySeedError: "Seeded embark is not supported for standard singleplayer from this API. "
-                              + "Seed was not applied and the run was not started.");
+            lobby: charSelect.Lobby,
+            // The game only offers a seed in Custom mode. Standard singleplayer still creates a
+            // lobby (InitializeSingleplayer), so gate on the mode rather than on the lobby.
+            seedError: charSelect.Lobby is { } csLobby && MegaCrit.Sts2.Core.Multiplayer.Game.NetGameTypeExtensions.IsMultiplayer(csLobby.NetService.Type)
+                ? null
+                : "Seeded embark is not supported for standard singleplayer (use Custom mode). "
+                  + "Seed was not applied and the run was not started.");
     }
 
     // Custom mode setup. Same screen shape as character select — the confirm control is
@@ -1661,7 +1666,10 @@ public static partial class McpMod
             option,
             seed,
             runNoun: "custom run",
-            noLobbySeedError: "Seed could not be applied (no lobby on this custom run screen); run was not started.");
+            lobby: customRun.Lobby,
+            seedError: customRun.Lobby == null
+                ? "Seed could not be applied (no lobby on this custom run screen); run was not started."
+                : null);
     }
 
     // Shared dispatch for the two "start a run" screens (NCharacterSelectScreen and
@@ -1676,7 +1684,8 @@ public static partial class McpMod
         string option,
         string? seed,
         string runNoun,
-        string noLobbySeedError)
+        StartRunLobby? lobby,
+        string? seedError)
     {
         if (string.Equals(option, "back", System.StringComparison.OrdinalIgnoreCase))
         {
@@ -1714,13 +1723,18 @@ public static partial class McpMod
         if (string.Equals(option, "confirm", System.StringComparison.OrdinalIgnoreCase) ||
             string.Equals(option, "embark", System.StringComparison.OrdinalIgnoreCase))
         {
+            var confirmBtn = GetInstanceFieldValue(screen, confirmField) as NClickableControl;
+            if (confirmBtn == null || !confirmBtn.IsEnabled)
+                return Error("Confirm button not available — select a character first");
+
             if (!string.IsNullOrWhiteSpace(seed))
             {
                 seed = seed.Trim();
-                var lobby = GetInstanceFieldValue(screen, "_lobby") as StartRunLobby;
-                if (lobby == null)
-                    return Error(noLobbySeedError);
+                if (seedError != null || lobby == null)
+                    return Error(seedError ?? "Seed could not be applied (no lobby); run was not started.");
 
+                // Only set the seed once the run is certain to start, so a refused embark
+                // doesn't leave (and, as MP host, broadcast) a changed seed behind.
                 try
                 {
                     lobby.SetSeed(seed);
@@ -1731,16 +1745,11 @@ public static partial class McpMod
                 }
             }
 
-            var confirmBtn = GetInstanceFieldValue(screen, confirmField);
-            if (confirmBtn is NClickableControl confirmClickable && confirmClickable.IsEnabled)
-            {
-                var msg = string.IsNullOrEmpty(seed)
-                    ? $"Embarking on {runNoun}"
-                    : $"Embarking on {runNoun} (seed: {seed})";
-                confirmClickable.ForceClick();
-                return new Dictionary<string, object?> { ["status"] = "ok", ["message"] = msg };
-            }
-            return Error("Confirm button not available — select a character first");
+            var msg = string.IsNullOrEmpty(seed)
+                ? $"Embarking on {runNoun}"
+                : $"Embarking on {runNoun} (seed: {seed})";
+            confirmBtn.ForceClick();
+            return new Dictionary<string, object?> { ["status"] = "ok", ["message"] = msg };
         }
 
         if (string.Equals(option, "ascension_up", System.StringComparison.OrdinalIgnoreCase))

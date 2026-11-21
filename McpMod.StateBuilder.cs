@@ -638,7 +638,7 @@ public static partial class McpMod
         result["state_type"] = "menu";
         result["menu_screen"] = "character_select";
         result["message"] = "Select a character.";
-        AddStartRunScreenState(result, charSelect, "_embarkButton");
+        AddStartRunScreenState(result, charSelect, "_embarkButton", charSelect.Lobby);
     }
 
     // Custom mode setup. Structurally a character-select variant (same character
@@ -652,19 +652,20 @@ public static partial class McpMod
         result["menu_screen"] = "custom_run";
         result["message"] = "Custom run setup. Select a character, optionally toggle run modifiers "
                             + "(modifier_<key>) and adjust ascension, then confirm to embark.";
-        AddStartRunScreenState(result, customRun, "_confirmButton");
+        AddStartRunScreenState(result, customRun, "_confirmButton", customRun.Lobby);
     }
 
     // Shared body of the two "start a run" screens (NCharacterSelectScreen and
     // NCustomRunScreen). They are separate types but expose the same controls under
-    // the same field names — _backButton, _unreadyButton, _ascensionPanel, _lobby —
+    // the same field names — _backButton, _unreadyButton, _ascensionPanel —
     // so everything except the confirm button's field name is identical. Fields that
     // only one screen owns (_seedInput, the modifier tickboxes) are emitted only when
     // that screen actually has them.
     private static void AddStartRunScreenState(
         Dictionary<string, object?> result,
         Node screen,
-        string confirmField)
+        string confirmField,
+        StartRunLobby? lobby)
     {
         var buttons = FindAll<NCharacterSelectButton>(screen);
         var characters = new List<Dictionary<string, object?>>();
@@ -673,12 +674,10 @@ public static partial class McpMod
         if (characters.Count > 0)
             result["characters"] = characters;
 
-        var lobby = GetInstanceFieldValue(screen, "_lobby") as StartRunLobby;
-
-        // Seed — custom run only, gated on the screen owning a seed input. The lobby is
-        // what the run actually uses and both directions flow through it (SetSeed ->
-        // SeedChanged -> _seedInput.Text, and a human submitting the field -> SetSeed),
-        // so read it from there rather than off the LineEdit.
+        // Seed — custom run only, gated on the screen owning a seed input. Read it from the
+        // lobby, which is what the run actually uses: a human submitting the field calls
+        // SetSeed, but SetSeed from this API only refreshes _seedInput on MP clients, so the
+        // on-screen field can be stale in singleplayer or as host.
         if (GetInstanceFieldValue(screen, "_seedInput") != null && !string.IsNullOrWhiteSpace(lobby?.Seed))
             result["seed"] = lobby!.Seed;
 
