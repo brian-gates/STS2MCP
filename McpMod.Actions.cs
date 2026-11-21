@@ -362,8 +362,7 @@ public static partial class McpMod
             var merchUI = NMerchantRoom.Instance;
             if (merchUI?.Inventory != null && !merchUI.Inventory.IsOpen)
                 merchUI.OpenInventory();
-            // v0.113 moved the per-player inventories from MerchantRoom to the run's MerchantSynchronizer.
-            inventory = RunManager.Instance.MerchantSynchronizer?.GetLocalInventory();
+            inventory = GetLocalMerchantInventory();
         }
         else if (player.RunState.CurrentRoom is EventRoom eventRoom
                  && eventRoom.CanonicalEvent is FakeMerchant
@@ -413,11 +412,16 @@ public static partial class McpMod
         if (!entry.EnoughGold)
             return Error($"Not enough gold (need {entry.Cost}, have {player.Gold})");
 
-        // Fire-and-forget purchase through the synchronizer, the game's own (multiplayer-safe) path.
+        // Buy through the synchronizer, the game's own (multiplayer-safe) path, as NMerchantSlot does.
         var merchantSync = RunManager.Instance.MerchantSynchronizer;
         if (merchantSync == null)
             return Error("Shop is not ready yet; wait a moment and retry");
-        _ = merchantSync.PurchaseLocalEntry(entry);
+        var purchase = merchantSync.PurchaseLocalEntry(entry);
+        // It returns false before its first await when another purchase (its animations, or a card
+        // removal waiting on a pick) is still running.
+        if (purchase.IsCompleted && !purchase.IsFaulted && !purchase.Result)
+            return Error("Another purchase is still in progress; wait for it to finish and retry");
+        MegaCrit.Sts2.Core.Helpers.TaskHelper.RunSafely(purchase);
 
         return new Dictionary<string, object?>
         {

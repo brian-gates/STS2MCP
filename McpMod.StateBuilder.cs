@@ -1592,11 +1592,20 @@ public static partial class McpMod
         return state;
     }
 
+    // v0.113 moved the per-player shop inventories from MerchantRoom to the run's MerchantSynchronizer.
+    // GetLocalInventory indexes a list the synchronizer only fills after Hook.BeforeRoomEntered, so in
+    // the moment after entering the room it throws rather than returning null; treat that as not ready.
+    private static MerchantInventory? GetLocalMerchantInventory()
+    {
+        try { return RunManager.Instance.MerchantSynchronizer?.GetLocalInventory(); }
+        catch (ArgumentOutOfRangeException) { return null; }
+    }
+
     private static Dictionary<string, object?> BuildShopState(MerchantRoom merchantRoom, RunState runState)
     {
         var state = new Dictionary<string, object?>();
 
-        var inventory = RunManager.Instance.MerchantSynchronizer?.GetLocalInventory();
+        var inventory = GetLocalMerchantInventory();
         if (inventory == null)
         {
             state["items"] = new List<Dictionary<string, object?>>();
