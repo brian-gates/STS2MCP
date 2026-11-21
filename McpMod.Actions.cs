@@ -725,6 +725,15 @@ public static partial class McpMod
                     ["message"] = "Confirming enchant selection"
                 };
             }
+            if (screen is NDeckEnchantSelectScreen)
+            {
+                // The preview's Confirm wasn't enabled yet (it can lag the preview opening).
+                return new Dictionary<string, object?>
+                {
+                    ["status"] = "ok",
+                    ["message"] = "Enchant preview opened; call confirm_selection again to apply it"
+                };
+            }
             return new Dictionary<string, object?>
             {
                 ["status"] = "ok",
