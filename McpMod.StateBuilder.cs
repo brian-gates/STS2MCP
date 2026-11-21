@@ -768,6 +768,46 @@ public static partial class McpMod
             result["options"] = options;
     }
 
+    // StartRunLobby.MaxPlayers is public up to v0.107.x and removed in v0.111, where the
+    // value lives in the private _maxPlayers backing field (set from the ctor's maxPlayers
+    // arg). Both are read by name so one build works on either game version; falls back to
+    // the current player count.
+    private static int GetStartRunLobbyMaxPlayers(StartRunLobby lobby)
+    {
+        try
+        {
+            var p = typeof(StartRunLobby).GetProperty("MaxPlayers",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
+            if (p != null && p.GetValue(lobby) is int pub)
+                return pub;
+
+            var f = typeof(StartRunLobby).GetField("_maxPlayers",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            if (f != null && f.GetValue(lobby) is int n)
+                return n;
+        }
+        catch { }
+        return lobby.Players.Count;
+    }
+
+    // LoadRunLobby's connected-player ids are ConnectedPlayerIds up to v0.107.x and PlayerIds
+    // in v0.111. Read whichever exists by name so one build works on either game version.
+    private static HashSet<ulong>? GetLoadRunLobbyConnectedIds(LoadRunLobby lobby)
+    {
+        try
+        {
+            foreach (var name in new[] { "PlayerIds", "ConnectedPlayerIds" })
+            {
+                var p = typeof(LoadRunLobby).GetProperty(name,
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
+                if (p?.GetValue(lobby) is System.Collections.IEnumerable ids)
+                    return ids.Cast<object>().Select(Convert.ToUInt64).ToHashSet();
+            }
+        }
+        catch { }
+        return null;
+    }
+
     private static Dictionary<string, object?> BuildStartRunLobbyState(StartRunLobby lobby)
     {
         var lobbyState = new Dictionary<string, object?>
@@ -780,7 +820,7 @@ public static partial class McpMod
                 _ => lobby.NetService.Type.ToString().ToLowerInvariant()
             },
             ["game_mode"] = lobby.GameMode.ToString().ToLowerInvariant(),
-            ["max_players"] = lobby.MaxPlayers,
+            ["max_players"] = GetStartRunLobbyMaxPlayers(lobby),
             ["ascension"] = lobby.Ascension,
             ["max_ascension"] = lobby.MaxAscension,
             ["all_ready"] = lobby.Players.Count > 0 && lobby.Players.All(p => p.isReady),
@@ -970,21 +1010,13 @@ public static partial class McpMod
             catch { }
 
             info["expected_player_count"] = lobby.Run?.Players?.Count ?? 0;
-            info["connected_player_count"] = lobby.ConnectedPlayerIds?.Count ?? 0;
+            // ConnectedPlayerIds (v0.107.x) became PlayerIds (v0.111); read by name.
+            var connectedIds = GetLoadRunLobbyConnectedIds(lobby);
+            info["connected_player_count"] = connectedIds?.Count ?? 0;
 
-            // LoadRunLobby no longer exposes IsAboutToBeginGame in the public game API,
-            // so derive the same readiness summary from connected players and ready flags.
-            // Without these fields, FormatLobbyMarkdown printed "All ready: false" unconditionally for load lobbies.
+            // LoadRunLobby.IsAboutToBeginGame() is public on both v0.107.1 and v0.111; use it directly.
             bool aboutToBegin = false;
-            try
-            {
-                var runPlayers = lobby.Run?.Players;
-                var connectedPlayerIds = lobby.ConnectedPlayerIds;
-                aboutToBegin = runPlayers != null
-                    && connectedPlayerIds != null
-                    && runPlayers.Count > 0
-                    && runPlayers.All(player => connectedPlayerIds.Contains(player.NetId) && lobby.IsPlayerReady(player.NetId));
-            }
+            try { aboutToBegin = lobby.IsAboutToBeginGame(); }
             catch { }
             info["all_ready"] = aboutToBegin;
             info["is_about_to_begin"] = aboutToBegin;
@@ -997,7 +1029,7 @@ public static partial class McpMod
                 {
                     foreach (var sp in lobby.Run.Players)
                     {
-                        bool isConnected = lobby.ConnectedPlayerIds?.Contains(sp.NetId) ?? false;
+                        bool isConnected = connectedIds?.Contains(sp.NetId) ?? false;
                         bool isReady = false;
                         try { isReady = lobby.IsPlayerReady(sp.NetId); } catch { }
                         players.Add(new Dictionary<string, object?>
@@ -1560,11 +1592,20 @@ public static partial class McpMod
         return state;
     }
 
+    // v0.113 moved the per-player shop inventories from MerchantRoom to the run's MerchantSynchronizer.
+    // GetLocalInventory indexes a list the synchronizer only fills after Hook.BeforeRoomEntered, so in
+    // the moment after entering the room it throws rather than returning null; treat that as not ready.
+    private static MerchantInventory? GetLocalMerchantInventory()
+    {
+        try { return RunManager.Instance.MerchantSynchronizer?.GetLocalInventory(); }
+        catch (ArgumentOutOfRangeException) { return null; }
+    }
+
     private static Dictionary<string, object?> BuildShopState(MerchantRoom merchantRoom, RunState runState)
     {
         var state = new Dictionary<string, object?>();
 
-        var inventory = merchantRoom.GetLocalInventory();
+        var inventory = GetLocalMerchantInventory();
         if (inventory == null)
         {
             state["items"] = new List<Dictionary<string, object?>>();
