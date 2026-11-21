@@ -768,12 +768,19 @@ public static partial class McpMod
             result["options"] = options;
     }
 
-    // v0.111: StartRunLobby no longer exposes a public MaxPlayers; read the private
-    // backing field (set from the ctor's maxPlayers arg). Falls back to current count.
+    // StartRunLobby.MaxPlayers is public up to v0.107.x and removed in v0.111, where the
+    // value lives in the private _maxPlayers backing field (set from the ctor's maxPlayers
+    // arg). Both are read by name so one build works on either game version; falls back to
+    // the current player count.
     private static int GetStartRunLobbyMaxPlayers(StartRunLobby lobby)
     {
         try
         {
+            var p = typeof(StartRunLobby).GetProperty("MaxPlayers",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
+            if (p != null && p.GetValue(lobby) is int pub)
+                return pub;
+
             var f = typeof(StartRunLobby).GetField("_maxPlayers",
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
             if (f != null && f.GetValue(lobby) is int n)
@@ -781,6 +788,24 @@ public static partial class McpMod
         }
         catch { }
         return lobby.Players.Count;
+    }
+
+    // LoadRunLobby's connected-player ids are ConnectedPlayerIds up to v0.107.x and PlayerIds
+    // in v0.111. Read whichever exists by name so one build works on either game version.
+    private static HashSet<ulong>? GetLoadRunLobbyConnectedIds(LoadRunLobby lobby)
+    {
+        try
+        {
+            foreach (var name in new[] { "PlayerIds", "ConnectedPlayerIds" })
+            {
+                var p = typeof(LoadRunLobby).GetProperty(name,
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
+                if (p?.GetValue(lobby) is System.Collections.IEnumerable ids)
+                    return ids.Cast<object>().Select(Convert.ToUInt64).ToHashSet();
+            }
+        }
+        catch { }
+        return null;
     }
 
     private static Dictionary<string, object?> BuildStartRunLobbyState(StartRunLobby lobby)
@@ -985,11 +1010,11 @@ public static partial class McpMod
             catch { }
 
             info["expected_player_count"] = lobby.Run?.Players?.Count ?? 0;
-            // v0.111: connected players are the lobby's Players (PlayerCount/PlayerIds);
-            // the old ConnectedPlayerIds property was removed.
-            info["connected_player_count"] = lobby.PlayerCount;
+            // ConnectedPlayerIds (v0.107.x) became PlayerIds (v0.111); read by name.
+            var connectedIds = GetLoadRunLobbyConnectedIds(lobby);
+            info["connected_player_count"] = connectedIds?.Count ?? 0;
 
-            // v0.111 restores LoadRunLobby.IsAboutToBeginGame(); use it directly.
+            // LoadRunLobby.IsAboutToBeginGame() is public on both v0.107.1 and v0.111; use it directly.
             bool aboutToBegin = false;
             try { aboutToBegin = lobby.IsAboutToBeginGame(); }
             catch { }
@@ -1004,7 +1029,7 @@ public static partial class McpMod
                 {
                     foreach (var sp in lobby.Run.Players)
                     {
-                        bool isConnected = lobby.PlayerIds.Contains(sp.NetId);
+                        bool isConnected = connectedIds?.Contains(sp.NetId) ?? false;
                         bool isReady = false;
                         try { isReady = lobby.IsPlayerReady(sp.NetId); } catch { }
                         players.Add(new Dictionary<string, object?>
