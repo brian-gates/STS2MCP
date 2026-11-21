@@ -1,6 +1,7 @@
 bin/
 obj/
 out/
+lib/
 
 # Python
 __pycache__/
@@ -13,6 +14,9 @@ mcp/.venv/
 .mcp.json
 CLAUDE.md
 GUIDE.md
+
+# Rider / ReSharper per-user settings
+*.DotSettings.user
 
 # Qoder
 .qoder.json
