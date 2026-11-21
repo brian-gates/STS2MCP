@@ -556,14 +556,6 @@ public static partial class McpMod
             }
             else
             {
-                // Auto-open the shopkeeper's inventory if not already open.
-                // NMerchantRoom.Inventory (UI node) can be null before the scene is fully ready;
-                // OpenInventory() itself accesses Inventory.IsOpen, so guard against null.
-                var merchUI = NMerchantRoom.Instance;
-                if (merchUI?.Inventory != null && !merchUI.Inventory.IsOpen)
-                {
-                    merchUI.OpenInventory();
-                }
                 result["state_type"] = "shop";
                 result["shop"] = BuildShopState(merchantRoom, runState);
             }
@@ -1654,22 +1646,11 @@ public static partial class McpMod
             return state;
         }
 
-        // Auto-open the inventory if the merchant button is still available
-        if (fakeMerchantNode != null)
-        {
-            var inventoryUI = FindFirst<NMerchantInventory>(fakeMerchantNode);
-            if (inventoryUI != null && !inventoryUI.IsOpen)
-            {
-                // ForceClick the merchant button to go through the proper signal chain
-                // (disables proceed button, wires InventoryClosed callback, etc.)
-                var merchantButton = fakeMerchantNode.MerchantButton;
-                if (merchantButton != null && merchantButton.Visible && merchantButton.IsEnabled)
-                    merchantButton.ForceClick();
-            }
-        }
-
         // Build shop inventory from the FakeMerchant model
         var shopState = BuildFakeMerchantShopItems(fakeMerchant.Inventory);
+        bool isOpen = fakeMerchantNode != null
+            && FindFirst<NMerchantInventory>(fakeMerchantNode)?.IsOpen == true;
+        shopState["is_open"] = isOpen;
 
         // Proceed button
         if (fakeMerchantNode != null)
@@ -1681,6 +1662,7 @@ public static partial class McpMod
         {
             shopState["can_proceed"] = false;
         }
+        shopState["available_actions"] = BuildShopAvailableActions(isOpen);
 
         state["shop"] = shopState;
         return state;
@@ -1764,6 +1746,9 @@ public static partial class McpMod
     private static Dictionary<string, object?> BuildShopState(MerchantRoom merchantRoom, RunState runState)
     {
         var state = new Dictionary<string, object?>();
+        bool isOpen = NMerchantRoom.Instance?.Inventory?.IsOpen ?? false;
+        state["is_open"] = isOpen;
+        state["available_actions"] = BuildShopAvailableActions(isOpen);
 
         var inventory = GetLocalMerchantInventory();
         if (inventory == null)
@@ -1869,6 +1854,26 @@ public static partial class McpMod
         state["can_proceed"] = proceedButton?.IsEnabled ?? false;
 
         return state;
+    }
+
+    private static List<Dictionary<string, object?>> BuildShopAvailableActions(bool isOpen)
+    {
+        return new List<Dictionary<string, object?>>
+        {
+            new()
+            {
+                ["action"] = "shop_purchase",
+                ["parameter"] = "index",
+                ["description"] = "Purchase an item from the shop items list."
+            },
+            new()
+            {
+                ["action"] = "proceed",
+                ["description"] = isOpen
+                    ? "Close the shop inventory. Call proceed again after it closes to leave the room."
+                    : "Leave the shop room and return to the map."
+            }
+        };
     }
 
     private static Dictionary<string, object?> BuildMapState(RunState runState)
@@ -2126,6 +2131,44 @@ public static partial class McpMod
         }
         state["cards"] = cards;
 
+        // Surface the current grid selection so clients can continue multi-card
+        // choices even when selecting the first card does not otherwise change
+        // the screen state. The game keeps the selected card models in a private
+        // collection on the selection screen.
+        var selectedCards = new List<Dictionary<string, object?>>();
+        if (GetInstanceFieldValue(screen, "_selectedCards") is System.Collections.IEnumerable selectedItems)
+        {
+            foreach (var selectedItem in selectedItems)
+            {
+                object? selectedModel = selectedItem;
+                if (selectedItem is NGridCardHolder selectedHolder)
+                    selectedModel = selectedHolder.CardModel;
+                else if (selectedItem != null)
+                {
+                    var cardModelProperty = selectedItem.GetType().GetProperty(
+                        "CardModel",
+                        System.Reflection.BindingFlags.Instance |
+                        System.Reflection.BindingFlags.Public |
+                        System.Reflection.BindingFlags.NonPublic);
+                    selectedModel = cardModelProperty?.GetValue(selectedItem) ?? selectedItem;
+                }
+
+                int selectedIndex = cardHolders.FindIndex(holder =>
+                    holder.CardModel != null && ReferenceEquals(holder.CardModel, selectedModel));
+                if (selectedIndex < 0)
+                    continue;
+
+                var selectedCard = cardHolders[selectedIndex].CardModel;
+                selectedCards.Add(new Dictionary<string, object?>
+                {
+                    ["index"] = selectedIndex,
+                    ["name"] = selectedCard == null ? "unknown" : SafeGetText(() => selectedCard.Title)
+                });
+            }
+        }
+        state["selected_cards"] = selectedCards;
+        state["selected_count"] = selectedCards.Count;
+
         // Preview container showing? (selection complete, awaiting confirm)
         // Upgrade, enchant and generic screens each have their own preview containers; use the same
         // list as the confirm/cancel actions so state and actions agree.
@@ -2189,6 +2232,39 @@ public static partial class McpMod
             canConfirm = FindAll<NConfirmButton>(screen).Any(b => b.IsEnabled && b.IsVisibleInTree());
         }
         state["can_confirm"] = canConfirm;
+
+        // Expose non-card controls explicitly so API clients do not mistake
+        // the selected card for the only available next action.
+        var availableActions = new List<Dictionary<string, object?>>
+        {
+            new()
+            {
+                ["action"] = "select_card",
+                ["parameter"] = "index",
+                ["description"] = previewShowing
+                    ? "Compatibility fallback: selecting again confirms the open preview. Prefer confirm_selection."
+                    : "Select a card from the cards list."
+            }
+        };
+        if (canConfirm)
+        {
+            availableActions.Add(new Dictionary<string, object?>
+            {
+                ["action"] = "confirm_selection",
+                ["description"] = "Confirm the selected card(s) and leave this selection step."
+            });
+        }
+        if (canCancel)
+        {
+            availableActions.Add(new Dictionary<string, object?>
+            {
+                ["action"] = "cancel_selection",
+                ["description"] = previewShowing
+                    ? "Return to the card grid without confirming."
+                    : "Close or cancel the card selection screen."
+            });
+        }
+        state["available_actions"] = availableActions;
 
         return state;
     }
@@ -2281,6 +2357,33 @@ public static partial class McpMod
         var confirmButton = screen.GetNodeOrNull<NConfirmButton>("%Confirm");
         state["can_cancel"] = cancelButton?.IsEnabled == true;
         state["can_confirm"] = confirmButton?.IsEnabled == true;
+        var availableActions = new List<Dictionary<string, object?>>();
+        if (!previewShowing)
+        {
+            availableActions.Add(new Dictionary<string, object?>
+            {
+                ["action"] = "select_bundle",
+                ["parameter"] = "index",
+                ["description"] = "Open a bundle preview from the bundles list."
+            });
+        }
+        if (previewShowing && confirmButton?.IsEnabled == true)
+        {
+            availableActions.Add(new Dictionary<string, object?>
+            {
+                ["action"] = "confirm_bundle_selection",
+                ["description"] = "Confirm the previewed bundle and finish this selection step."
+            });
+        }
+        if (previewShowing && cancelButton?.IsEnabled == true)
+        {
+            availableActions.Add(new Dictionary<string, object?>
+            {
+                ["action"] = "cancel_bundle_selection",
+                ["description"] = "Close the bundle preview and return to the bundle list."
+            });
+        }
+        state["available_actions"] = availableActions;
 
         return state;
     }
@@ -2348,7 +2451,29 @@ public static partial class McpMod
 
         // Confirm button state
         var confirmBtn = hand.GetNodeOrNull<NConfirmButton>("%SelectModeConfirmButton");
-        state["can_confirm"] = confirmBtn?.IsEnabled ?? false;
+        bool canConfirm = confirmBtn?.IsEnabled ?? false;
+        state["can_confirm"] = canConfirm;
+
+        var availableActions = new List<Dictionary<string, object?>>();
+        bool upgradeReadyToConfirm = hand.CurrentMode == NPlayerHand.Mode.UpgradeSelect && canConfirm;
+        if (!upgradeReadyToConfirm)
+        {
+            availableActions.Add(new Dictionary<string, object?>
+            {
+                ["action"] = "combat_select_card",
+                ["parameter"] = "card_index",
+                ["description"] = "Select a card from the selectable hand cards."
+            });
+        }
+        if (canConfirm)
+        {
+            availableActions.Add(new Dictionary<string, object?>
+            {
+                ["action"] = "combat_confirm_selection",
+                ["description"] = "Confirm the currently selected card(s) and finish this selection step."
+            });
+        }
+        state["available_actions"] = availableActions;
 
         return state;
     }
