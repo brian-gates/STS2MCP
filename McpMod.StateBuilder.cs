@@ -2128,20 +2128,18 @@ public static partial class McpMod
         state["cards"] = cards;
 
         // Preview container showing? (selection complete, awaiting confirm)
-        // Upgrade screens use UpgradeSinglePreviewContainer / UpgradeMultiPreviewContainer
-        var previewSingle = screen.GetNodeOrNull<Godot.Control>("%UpgradeSinglePreviewContainer");
-        var previewMulti = screen.GetNodeOrNull<Godot.Control>("%UpgradeMultiPreviewContainer");
-        var previewGeneric = screen.GetNodeOrNull<Godot.Control>("%PreviewContainer");
-        bool previewShowing = (previewSingle?.Visible ?? false)
-                            || (previewMulti?.Visible ?? false)
-                            || (previewGeneric?.Visible ?? false);
+        // Upgrade, enchant and generic screens each have their own preview containers; use the same
+        // list as the confirm/cancel actions so state and actions agree.
+        var previewContainers = CardPreviewContainers
+            .Select(name => screen.GetNodeOrNull<Godot.Control>(name))
+            .ToArray();
+        bool previewShowing = previewContainers.Any(c => c?.Visible ?? false);
         state["preview_showing"] = previewShowing;
         if (previewShowing)
         {
             var previewCards = new List<Dictionary<string, object?>>();
-            AddPreviewCardsFromContainer(previewSingle, previewCards);
-            AddPreviewCardsFromContainer(previewMulti, previewCards);
-            AddPreviewCardsFromContainer(previewGeneric, previewCards);
+            foreach (var container in previewContainers)
+                AddPreviewCardsFromContainer(container, previewCards);
             state["preview_cards"] = previewCards;
         }
 
@@ -2151,7 +2149,7 @@ public static partial class McpMod
         bool canCancel = false;
         if (previewShowing)
         {
-            foreach (var container in new[] { previewSingle, previewMulti, previewGeneric })
+            foreach (var container in previewContainers)
             {
                 if (container?.Visible == true)
                 {
@@ -2170,7 +2168,7 @@ public static partial class McpMod
 
         // Confirm button - search all preview containers and main screen
         bool canConfirm = false;
-        foreach (var container in new[] { previewSingle, previewMulti, previewGeneric })
+        foreach (var container in previewContainers)
         {
             if (container?.Visible == true)
             {

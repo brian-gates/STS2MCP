@@ -1403,6 +1403,7 @@ Confirm card selection (grid screens only).
 ```
 
 Checks preview containers first, then main confirm button. Not needed for choose-a-card screens.
+On enchant screens (`NDeckEnchantSelectScreen`), whose main confirm only opens the enchant preview, the preview is confirmed in the same call, so one `confirm_selection` completes the enchant.
 
 ### `cancel_selection`
 
