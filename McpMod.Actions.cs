@@ -575,11 +575,14 @@ public static partial class McpMod
                 var shopCloseError = TryCloseMerchantInventory(merchRoom.Inventory);
                 if (shopCloseError != null)
                     return Error($"Shop inventory is open but could not be closed ({shopCloseError})");
-                return new Dictionary<string, object?>
-                {
-                    ["status"] = "ok",
-                    ["message"] = "Closing shop inventory; call proceed again to leave the shop room"
-                };
+                // Close() is synchronous and re-enables proceed, so leave in the same call; a
+                // state poll between two calls would reopen the inventory (the MP state builder does).
+                if (!merchRoom.ProceedButton.IsEnabled)
+                    return new Dictionary<string, object?>
+                    {
+                        ["status"] = "ok",
+                        ["message"] = "Closed shop inventory; call proceed again to leave the shop room"
+                    };
             }
             if (merchRoom.ProceedButton.IsEnabled)
             {
@@ -595,16 +598,13 @@ public static partial class McpMod
             if (fmNode != null)
             {
                 var fmInventory = FindFirst<NMerchantInventory>(fmNode);
+                bool fmClosed = false;
                 if (fmInventory is { IsOpen: true })
                 {
                     var fmCloseError = TryCloseMerchantInventory(fmInventory);
                     if (fmCloseError != null)
                         return Error($"Fake merchant inventory is open but could not be closed ({fmCloseError})");
-                    return new Dictionary<string, object?>
-                    {
-                        ["status"] = "ok",
-                        ["message"] = "Closing fake merchant inventory; call proceed again to leave the event"
-                    };
+                    fmClosed = true;
                 }
                 var proceedBtn = FindFirst<NProceedButton>(fmNode);
                 if (proceedBtn is { IsEnabled: true })
@@ -612,6 +612,12 @@ public static partial class McpMod
                     proceedBtn.ForceClick();
                     return new Dictionary<string, object?> { ["status"] = "ok", ["message"] = "Proceeding from fake merchant" };
                 }
+                if (fmClosed)
+                    return new Dictionary<string, object?>
+                    {
+                        ["status"] = "ok",
+                        ["message"] = "Closed fake merchant inventory; call proceed again to leave the event"
+                    };
             }
         }
 
@@ -650,7 +656,11 @@ public static partial class McpMod
             "_backButton",
             System.Reflection.BindingFlags.Instance |
             System.Reflection.BindingFlags.NonPublic)?.GetValue(inventory);
-        if (backButton is NClickableControl clickable && clickable.IsEnabled && IsNodeVisible(clickable))
+        // The game disables the back button on purpose while input is blocked or another screen
+        // (e.g. a card-removal pick) is on top; respect that rather than forcing Close().
+        if (backButton is NClickableControl { IsEnabled: false })
+            return "the shop's back button is disabled (a purchase or card-removal pick is still in progress)";
+        if (backButton is NClickableControl clickable && IsNodeVisible(clickable))
         {
             try
             {
@@ -698,7 +708,7 @@ public static partial class McpMod
             // interaction surface. Some clients repeat select_card(index) because
             // older state responses only exposed card indices. Treat that repeated
             // selection as confirmation instead of emitting a no-op grid signal.
-            foreach (var containerName in new[] { "%UpgradeSinglePreviewContainer", "%UpgradeMultiPreviewContainer", "%PreviewContainer" })
+            foreach (var containerName in CardPreviewContainers)
             {
                 if (gridScreen.GetNodeOrNull<Godot.Control>(containerName)?.Visible == true)
                 {
