@@ -39,6 +39,7 @@
 | `crystal_sphere_set_tool(tool)` | Crystal Sphere | Switch the active divination tool |
 | `crystal_sphere_click_cell(x, y)` | Crystal Sphere | Click a hidden cell in the grid |
 | `crystal_sphere_proceed()` | Crystal Sphere | Continue after the minigame finishes |
+| `dev_console(command)` | Testing | Run a developer console command (mutates game state) |
 
 ### Profile Tools
 
@@ -49,6 +50,19 @@
 The Compendium response is profile-scoped, not run-state-scoped. It works from the main menu, does not require navigating the in-game Compendium UI, and summarizes only the 20 most recent saved run-history files to keep the MCP response bounded.
 
 `search_wiki(query, item_type="all", limit=10)` is the selective wiki lookup. It fuzzy-matches names and IDs such as `ironclad perfect strike` or `silver spoon`, but it searches only cards and relics discovered by the active profile. The default response is capped at 10 entries; callers may pass a higher or lower `limit`, and the mod clamps oversized requests. Card matches include `base` and `upgraded` blocks so agents can compare pre-upgrade and post-upgrade text without asking for the full card library.
+
+### Developer Console (testing)
+
+`dev_console(command)` runs one line through the game's built-in developer console, with debug commands enabled, and returns the console's `success` flag and `output` text. It works from the menu, in singleplayer, and in multiplayer. It mutates game state directly and bypasses game rules, so use it to set up test scenarios (for example when testing another mod), not during normal play.
+
+Run `help` for the command list and `help <command>` for usage. IDs are SCREAMING_SNAKE_CASE model IDs; target index 0 is the player and enemies start at 1.
+
+| Example | Effect |
+|---|---|
+| `power BUFFER_POWER 2 0` | Give the player 2 Buffer (`power <id> <amount> <target-index>`) |
+| `damage 10 1` | Deal 10 damage to the first enemy (omit the index to hit all enemies) |
+| `block 15 0` | Give the player 15 block |
+| `fight AXEBOTS_NORMAL` | Jump to an encounter (`fight <encounter-id> [rng-seed]`) |
 
 ## Multiplayer
 

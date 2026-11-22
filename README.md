@@ -120,6 +120,10 @@ The MCP server exposes the same profile data through `get_profile()`, `get_compe
 
 `search_wiki()` is the selective lookup path for durable card and relic text. It never returns the full game catalog: the mod first filters to the active profile's discovered card and relic IDs, then returns only the best fuzzy matches. Use `item_type="card"` or `item_type="relic"` when the query is known, and raise `limit` only when the default 10 results are not enough.
 
+### Developer Console (testing)
+
+`POST /api/v1/dev_console` (MCP tool: `dev_console(command)`) runs one command through the game's built-in developer console, with debug commands enabled, and returns its `success` flag and `output` text. It works from the menu, in singleplayer, and in multiplayer. It mutates game state directly, so it is meant for testing (for example, setting up a fight to test another mod), not for normal play. Examples: `help`, `power BUFFER_POWER 2 0`, `damage 10 1`, `block 15 0`, `fight AXEBOTS_NORMAL`. See [docs/raw-full.md](docs/raw-full.md#developer-console-testing) for syntax and the response shape.
+
 ## For Developers
 
 ### Build & Install
