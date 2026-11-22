@@ -186,7 +186,7 @@ async def get_game_state(format: str = "markdown") -> str:
 
 
 @mcp.tool()
-async def menu_select(option: str, seed: str | None = None) -> str:
+async def menu_select(option: str, seed: str | None = None, value: str | None = None) -> str:
     """Select a visible menu option.
 
     Use with state_type "menu" or "game_over". Covers main-menu navigation,
@@ -218,16 +218,28 @@ async def menu_select(option: str, seed: str | None = None) -> str:
     direction is available; the state's `ascension` block carries level and max.
     The `selected` block reflects the current character and the keys of the enabled modifiers.
 
+    Debug multiplayer test scene ("multiplayer_test", opened with the dev console
+    command `multiplayer test`): the state's `multiplayer_test` block carries the
+    ip and id fields, status (idle / connecting / hosting / joined / starting_run),
+    role, net id, roster, and the selected character. Options: set_ip and set_id
+    (pass the new text as `value`; the id is this instance's net id, so a joining
+    instance needs one different from the host's), host, join, character_<ID>,
+    ready, disconnect, back. For local co-op one instance hosts and the other
+    sets a different id and joins.
+
     Args:
         option: Option ID from the current menu state's options list. If an
             option is listed under blocked_options, selecting it returns the
             API's manual-action response instead of forcing UI entry.
         seed: Optional seed for supported embark flows (custom run, multiplayer
             lobbies, daily). Standard singleplayer character select rejects seeds.
+        value: Text for options that set a field (multiplayer_test set_ip / set_id).
     """
     body: dict = {"action": "menu_select", "option": option}
     if seed is not None:
         body["seed"] = seed
+    if value is not None:
+        body["value"] = value
     try:
         return await _post(body)
     except Exception as e:

@@ -395,7 +395,10 @@ public static partial class McpMod
             {
                 var option = parsed.TryGetValue("option", out var optElem) ? optElem.GetString() ?? "" : "";
                 var seed = parsed.TryGetValue("seed", out var seedElem) ? seedElem.GetString() : null;
-                var resultTask = RunOnMainThread(() => ExecuteMenuSelect(option, seed));
+                var value = parsed.TryGetValue("value", out var valueElem) && valueElem.ValueKind != JsonValueKind.Null
+                    ? valueElem.ToString()
+                    : null;
+                var resultTask = RunOnMainThread(() => ExecuteMenuSelect(option, seed, value));
                 var result = resultTask.GetAwaiter().GetResult();
                 SendJson(response, result);
             }
@@ -493,7 +496,10 @@ public static partial class McpMod
             {
                 var option = parsed.TryGetValue("option", out var optElem) ? optElem.GetString() ?? "" : "";
                 var seed = parsed.TryGetValue("seed", out var seedElem) ? seedElem.GetString() : null;
-                var resultTask = RunOnMainThread(() => ExecuteMenuSelect(option, seed));
+                var value = parsed.TryGetValue("value", out var valueElem) && valueElem.ValueKind != JsonValueKind.Null
+                    ? valueElem.ToString()
+                    : null;
+                var resultTask = RunOnMainThread(() => ExecuteMenuSelect(option, seed, value));
                 var result = resultTask.GetAwaiter().GetResult();
                 SendJson(response, result);
             }
