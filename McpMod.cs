@@ -55,6 +55,15 @@ public static partial class McpMod
 
     private static int LoadPort()
     {
+        // STS2_MCP_PORT overrides the config file, so two game instances on one machine (e.g. a local co-op test
+        // through the game's multiplayer test scene) can each serve on their own port.
+        string? envPort = System.Environment.GetEnvironmentVariable("STS2_MCP_PORT");
+        if (int.TryParse(envPort, out int fromEnv) && fromEnv is > 0 and <= 65535)
+        {
+            GD.Print($"[STS2 MCP] Using port {fromEnv} from STS2_MCP_PORT");
+            return fromEnv;
+        }
+
         try
         {
             string? modDir = Path.GetDirectoryName(

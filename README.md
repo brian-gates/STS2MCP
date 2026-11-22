@@ -100,7 +100,7 @@ Add the server to your AI client's MCP config:
 
 Restart your Claude session after adding the config. To verify the MCP server is working, ask Claude to call `get_game_state` — with the game running, it should return the current game state.
 
-The MCP server accepts `--host` and `--port` options if you need non-default settings.
+The MCP server accepts `--host` and `--port` options if you need non-default settings. The mod reads its port from `STS2_MCP.conf`; the `STS2_MCP_PORT` environment variable overrides it, so two game instances on one machine (for example a local co-op test with `--fastmp`) can each serve on their own port.
 
 Flag `--no-trust-env` can be used to disable `requests` from picking up proxy settings from the environment, which can cause connection issues if you are running the server in a container.
 
