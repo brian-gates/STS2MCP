@@ -224,8 +224,9 @@ async def menu_select(option: str, seed: str | None = None, value: str | None = 
     role, net id, roster, and the selected character. Options: set_ip and set_id
     (pass the new text as `value`; the id is this instance's net id, so a joining
     instance needs one different from the host's), host, join, character_<ID>,
-    ready, disconnect, back. For local co-op one instance hosts and the other
-    sets a different id and joins.
+    ready, disconnect, back. A character chosen before host/join is stored as
+    pending_character and applied once the lobby exists. For local co-op one
+    instance hosts and the other sets a different id and joins.
 
     Args:
         option: Option ID from the current menu state's options list. If an

@@ -70,6 +70,8 @@ public static partial class McpMod
         var characters = GetMultiplayerTestCharacters(paginator);
         info["characters"] = characters.Select(c => c.Id.Entry).ToList();
         info["selected_character"] = SafeGetCharacterId(() => paginator?.Character);
+        if (_pendingTestCharacter != null && _pendingTestSceneId == scene.GetInstanceId())
+            info["pending_character"] = SafeGetCharacterId(() => _pendingTestCharacter);
 
         if (lobby != null)
         {
@@ -112,6 +114,8 @@ public static partial class McpMod
         Add("set_id", idle);
         Add("host", idle && IsMultiplayerTestButtonEnabled(scene, "HostButton"));
         Add("join", idle && IsMultiplayerTestButtonEnabled(scene, "JoinButton"));
+        // Before a lobby exists the choice is stored and applied once host/join
+        // creates it (see SelectMultiplayerTestCharacter), so these stay enabled.
         foreach (var character in characters)
             Add(MultiplayerTestCharacterPrefix + character.Id.Entry, status != "starting_run" && !localReady);
         if (inLobby)
@@ -223,6 +227,10 @@ public static partial class McpMod
         string option,
         string? value)
     {
+        var missing = MissingMultiplayerTestMembers();
+        if (missing.Count > 0)
+            return Error($"Multiplayer test scene is missing {string.Join(", ", missing)} (game version changed?)");
+
         var lobby = GetInstanceFieldValue(scene, "_lobby") as StartRunLobby;
         var status = GetMultiplayerTestStatus(scene, lobby);
         var normalized = option.ToLowerInvariant();
@@ -245,10 +253,7 @@ public static partial class McpMod
                 return Ok($"IP set to {ip}", ("ip", ip));
             }
             case "set_id":
-            case "set_port":
             {
-                if (normalized == "set_port")
-                    return Error($"The test scene's port is fixed at {GetMultiplayerTestPort()}; the second field is the net id. Use set_id.");
                 if (status != "idle")
                     return Error($"Cannot change the id while {status}; disconnect first");
                 var raw = value?.Trim();
@@ -262,11 +267,11 @@ public static partial class McpMod
             case "host":
                 if (status != "idle")
                     return Error($"Cannot host while {status}");
-                return InvokeMultiplayerTestHandler(scene, "HostButtonPressed", "Hosting");
+                return StartPendingCharacterAfter(scene, InvokeMultiplayerTestHandler(scene, "HostButtonPressed", "Hosting"));
             case "join":
                 if (status != "idle")
                     return Error($"Cannot join while {status}");
-                return InvokeMultiplayerTestHandler(scene, "JoinButtonPressed", "Joining");
+                return StartPendingCharacterAfter(scene, InvokeMultiplayerTestHandler(scene, "JoinButtonPressed", "Joining"));
             case "ready":
                 if (lobby == null)
                     return Error("Not in a lobby; host or join first");
@@ -276,9 +281,11 @@ public static partial class McpMod
             case "disconnect":
                 if (lobby == null)
                     return Error("Not in a lobby");
+                ClearPendingTestCharacter();
                 return InvokeMultiplayerTestHandler(scene, "Disconnect", "Disconnected", NetError.Quit);
             case "back":
             {
+                ClearPendingTestCharacter();
                 if (lobby != null)
                 {
                     var disconnected = InvokeMultiplayerTestHandler(scene, "Disconnect", "Disconnected", NetError.Quit);
@@ -310,25 +317,133 @@ public static partial class McpMod
 
         var paginator = GetInstanceFieldValue(scene, "_characterPaginator") as NMultiplayerTestCharacterPaginator;
         var characters = GetMultiplayerTestCharacters(paginator);
-        int index = characters.FindIndex(c =>
+        var character = characters.FirstOrDefault(c =>
             string.Equals(c.Id.Entry, characterId, StringComparison.OrdinalIgnoreCase));
-        if (paginator == null || index < 0)
+        if (paginator == null || character == null)
             return Error($"Character '{characterId}' not found. Available: "
                          + string.Join(", ", characters.Select(c => MultiplayerTestCharacterPrefix + c.Id.Entry)));
 
-        var character = characters[index];
-        paginator.SetIndex(index);
-
-        // SetIndex moves the paginator; make sure the scene's own change handler ran so
-        // the lobby (when there is one) gets the new character.
-        bool lobbyMatches = lobby != null && TryGetLocalLobbyPlayer(lobby) is { } local && local.character == character;
-        if (!lobbyMatches)
+        // The scene's character handler dereferences the lobby, so selecting before
+        // host/join throws inside the game. Store the choice instead and apply it once
+        // the lobby has a local player (host/join start the watcher).
+        if (lobby == null || TryGetLocalLobbyPlayer(lobby) == null)
         {
-            var handled = InvokeMultiplayerTestHandler(scene, "OnCharacterChanged", "", character);
-            if ((string?)handled["status"] != "ok")
-                return handled;
+            _pendingTestCharacter = character;
+            _pendingTestSceneId = scene.GetInstanceId();
+            if (GetMultiplayerTestStatus(scene, lobby) != "idle")
+                WatchPendingTestCharacter(scene);
+            return Ok($"Stored {character.Id.Entry}; it is applied when host/join creates the lobby",
+                ("character", character.Id.Entry), ("pending", true));
         }
-        return Ok($"Selected {character.Id.Entry}", ("character", character.Id.Entry));
+
+        ClearPendingTestCharacter();
+        var error = ApplyMultiplayerTestCharacter(scene, paginator, lobby, character);
+        return error ?? Ok($"Selected {character.Id.Entry}", ("character", character.Id.Entry));
+    }
+
+    // Moves the paginator and makes sure the scene's own change handler ran so the
+    // lobby gets the new character. Returns an error result, or null on success.
+    private static Dictionary<string, object?>? ApplyMultiplayerTestCharacter(
+        NMultiplayerTest scene,
+        NMultiplayerTestCharacterPaginator paginator,
+        StartRunLobby lobby,
+        CharacterModel character)
+    {
+        int index = GetMultiplayerTestCharacters(paginator).IndexOf(character);
+        if (index < 0)
+            return Error($"Character {character.Id.Entry} is no longer offered by the paginator");
+        try
+        {
+            paginator.SetIndex(index);
+        }
+        catch (Exception ex)
+        {
+            return Error($"NPaginator.SetIndex failed: {ex.Message} (game version changed?)");
+        }
+
+        if (TryGetLocalLobbyPlayer(lobby) is { } local && local.character == character)
+            return null;
+        var handled = InvokeMultiplayerTestHandler(scene, "OnCharacterChanged", "", character);
+        return (string?)handled["status"] == "ok" ? null : handled;
+    }
+
+    // Pending character chosen before a lobby existed. Applied on the main thread by a
+    // SceneTree.ProcessFrame watcher started after host/join, which stops once applied,
+    // when the scene goes away, or after PendingTestCharacterTimeout.
+    private static CharacterModel? _pendingTestCharacter;
+    private static ulong _pendingTestSceneId;
+    private static bool _pendingTestWatching;
+    private static DateTime _pendingTestDeadline;
+    private static readonly TimeSpan PendingTestCharacterTimeout = TimeSpan.FromSeconds(60);
+
+    private static Dictionary<string, object?> StartPendingCharacterAfter(
+        NMultiplayerTest scene,
+        Dictionary<string, object?> handlerResult)
+    {
+        if ((string?)handlerResult["status"] == "ok" && _pendingTestCharacter != null)
+        {
+            WatchPendingTestCharacter(scene);
+            handlerResult["pending_character"] = SafeGetCharacterId(() => _pendingTestCharacter);
+        }
+        return handlerResult;
+    }
+
+    private static void WatchPendingTestCharacter(NMultiplayerTest scene)
+    {
+        _pendingTestDeadline = DateTime.UtcNow + PendingTestCharacterTimeout;
+        if (_pendingTestWatching || scene.GetTree() is not { } tree)
+            return;
+        _pendingTestWatching = true;
+        tree.ProcessFrame += ApplyPendingTestCharacterOnFrame;
+    }
+
+    private static void ClearPendingTestCharacter()
+    {
+        _pendingTestCharacter = null;
+        if (_pendingTestWatching && Engine.GetMainLoop() is SceneTree tree)
+            tree.ProcessFrame -= ApplyPendingTestCharacterOnFrame;
+        _pendingTestWatching = false;
+    }
+
+    private static void ApplyPendingTestCharacterOnFrame()
+    {
+        var character = _pendingTestCharacter;
+        var scene = GodotObject.InstanceFromId(_pendingTestSceneId) as NMultiplayerTest;
+        if (character == null || scene == null || !GodotObject.IsInstanceValid(scene))
+        {
+            ClearPendingTestCharacter();
+            return;
+        }
+
+        var lobby = GetInstanceFieldValue(scene, "_lobby") as StartRunLobby;
+        if (lobby == null || TryGetLocalLobbyPlayer(lobby) == null)
+        {
+            if (DateTime.UtcNow > _pendingTestDeadline)
+            {
+                GD.PrintErr($"[STS2 MCP] Multiplayer test: no lobby within {PendingTestCharacterTimeout.TotalSeconds:0} s; dropped pending character {character.Id.Entry}");
+                ClearPendingTestCharacter();
+            }
+            return;
+        }
+
+        ClearPendingTestCharacter();
+        if (GetInstanceFieldValue(scene, "_characterPaginator") is not NMultiplayerTestCharacterPaginator paginator)
+        {
+            GD.PrintErr("[STS2 MCP] Multiplayer test: character paginator not found; pending character not applied");
+            return;
+        }
+        var error = ApplyMultiplayerTestCharacter(scene, paginator, lobby, character);
+        if (error != null)
+            GD.PrintErr($"[STS2 MCP] Multiplayer test: applying pending character {character.Id.Entry} failed: {error["error"]}");
+    }
+
+    private static List<string> MissingMultiplayerTestMembers()
+    {
+        var missing = new List<string>();
+        foreach (var name in new[] { "_lobby", "_ipField", "_idField", "_characterPaginator" })
+            if (typeof(NMultiplayerTest).GetField(name, MultiplayerTestMethodFlags) == null)
+                missing.Add(name);
+        return missing;
     }
 
     private static Dictionary<string, object?> InvokeMultiplayerTestHandler(
@@ -339,14 +454,15 @@ public static partial class McpMod
     {
         var method = typeof(NMultiplayerTest).GetMethod(methodName, MultiplayerTestMethodFlags);
         if (method == null)
-            return Error($"Multiplayer test handler {methodName} not found (game version changed?)");
+            return Error($"Multiplayer test handler NMultiplayerTest.{methodName} not found (game version changed?)");
         try
         {
             method.Invoke(scene, args);
         }
-        catch (TargetInvocationException ex) when (ex.InnerException != null)
+        catch (Exception ex)
         {
-            return Error($"{methodName} failed: {ex.InnerException.Message}");
+            var cause = ex is TargetInvocationException { InnerException: { } inner } ? inner : ex;
+            return Error($"NMultiplayerTest.{methodName} failed: {cause.GetType().Name}: {cause.Message} (game version changed?)");
         }
         return Ok(message);
     }
