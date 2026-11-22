@@ -11,8 +11,9 @@ HTTP API on `localhost:15526`. No authentication.
 - `GET /api/v1/wiki` — fuzzy-search discovered card/relic wiki entries
 - `GET /api/v1/profiles` — list profile slots
 - `POST /api/v1/profiles` — switch or delete profile slots
+- `POST /api/v1/dev_console`: run a developer console command (testing only)
 
-Singleplayer and multiplayer endpoints are mutually exclusive (HTTP 409 if mismatched).
+Singleplayer and multiplayer endpoints are mutually exclusive (HTTP 409 if mismatched). `dev_console` works in any mode.
 
 ## GET — Query Parameters
 
@@ -105,6 +106,10 @@ Example searches:
 |---|---|---|
 | `switch` | `profile_id`: 1-3 | Switch through the game profile UI. Empty slots can be used for fresh-profile testing. Cannot be used during a run. |
 | `delete` | `profile_id`: 1-3 | Delete an inactive profile slot. The active profile is rejected. |
+
+### Developer Console (testing)
+
+`POST /api/v1/dev_console` with `{"command": "<line>"}` runs the game's developer console (debug commands enabled) and returns `success`, `output`, and `task_status` for async commands. It mutates game state; use it only for testing. Max 500 characters. Examples: `help`, `power BUFFER_POWER 2 0`, `damage 10 1`, `block 15 0`, `fight AXEBOTS_NORMAL`.
 
 ### Combat
 

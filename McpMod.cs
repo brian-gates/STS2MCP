@@ -279,6 +279,14 @@ public static partial class McpMod
                 else
                     SendError(response, 405, "Method not allowed");
             }
+            else if (path == "/api/v1/dev_console")
+            {
+                // Mode-independent: works from the menu, singleplayer, and multiplayer.
+                if (request.HttpMethod == "POST")
+                    HandlePostDevConsole(request, response);
+                else
+                    SendError(response, 405, "Method not allowed");
+            }
             else
             {
                 SendError(response, 404, "Not found");

@@ -12,8 +12,9 @@ HTTP API served by the STS2_MCP mod on `localhost:15526`. No authentication. Loc
 - `GET  /api/v1/wiki` — fuzzy-search discovered card/relic wiki entries
 - `GET  /api/v1/profiles` — list profile slots
 - `POST /api/v1/profiles` — switch or delete profile slots
+- `POST /api/v1/dev_console`: run a developer console command (testing only)
 
-The endpoints are mutually exclusive: calling singleplayer during a multiplayer run (or vice versa) returns HTTP 409.
+The singleplayer and multiplayer endpoints are mutually exclusive: calling singleplayer during a multiplayer run (or vice versa) returns HTTP 409. `/api/v1/dev_console` works in any mode.
 
 ---
 
@@ -1149,6 +1150,49 @@ Delete an inactive profile slot:
 | `profile_id` | int | Yes | Profile slot, from 1 to 3 |
 
 Switching is rejected during a run. Deleting the active profile is rejected; switch away first if you need to remove a slot.
+
+---
+
+## Developer Console (testing)
+
+### `POST /api/v1/dev_console`
+
+Runs one line through the game's own developer console (`MegaCrit.Sts2.Core.DevConsole.DevConsole.ProcessCommand`) on the main thread. It mutates game state directly and is meant for testing mods and game behavior. Release builds normally hide the debug-only commands unless `full_console` is enabled in the game's settings; the mod uses its own console instance with debug commands allowed, so that setting is not changed. Debug commands used during a run make the game skip that run's metrics upload.
+
+```json
+{ "command": "power BUFFER_POWER 2 0" }
+```
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `command` | string | Yes | One command line. Trimmed; must be non-empty, a single line, and at most 500 characters (HTTP 400 otherwise). |
+
+Response:
+
+```json
+{
+  "status": "ok",
+  "command": "power BUFFER_POWER 2 0",
+  "success": true,
+  "output": "...",
+  "task_status": "completed"
+}
+```
+
+- `success` and `output` come from the console's `CmdResult`. `output` has the console's BBCode color tags removed. When `success` is false, `status` is `"error"` and `error` repeats the console message.
+- `task_status` appears only for async commands (for example `fight`): `completed`, `pending` (still running after a 5 second wait; it keeps running in the game), `faulted`, or `canceled`.
+
+Use `help` to list commands and `help <command>` for usage. IDs are model IDs in SCREAMING_SNAKE_CASE (the `id` values in game state). Target index 0 is the player; enemies start at 1.
+
+| Command | Syntax |
+|---|---|
+| Apply power | `power <id> <amount> <target-index>`, e.g. `power BUFFER_POWER 2 0` |
+| Damage | `damage <amount> [target-index]` (no index: all enemies), e.g. `damage 10 1` |
+| Block | `block <amount> [target-index]`, e.g. `block 15 0` |
+| Fight | `fight <encounter-id> [rng-seed]`, e.g. `fight AXEBOTS_NORMAL` |
+| Heal | `heal <amount> [index]` |
+| Kill | `kill [target-index\|all]` |
+| Relic / potion / card | `relic [add\|remove] <id>`, `potion <id>`, `card <id> [pile]` |
 
 ---
 

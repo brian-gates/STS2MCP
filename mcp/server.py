@@ -43,6 +43,10 @@ def _profiles_url() -> str:
     return f"{_base_url}/api/v1/profiles"
 
 
+def _dev_console_url() -> str:
+    return f"{_base_url}/api/v1/dev_console"
+
+
 def _get_client() -> httpx.AsyncClient:
     global _http
     if _http is None:
@@ -103,6 +107,12 @@ async def _profiles_get() -> str:
 
 async def _profiles_post(body: dict) -> str:
     r = await _get_client().post(_profiles_url(), json=body)
+    r.raise_for_status()
+    return r.text
+
+
+async def _dev_console_post(command: str) -> str:
+    r = await _get_client().post(_dev_console_url(), json={"command": command})
     r.raise_for_status()
     return r.text
 
@@ -1141,6 +1151,50 @@ async def mp_crystal_sphere_proceed() -> str:
     """[Multiplayer Crystal Sphere] Continue after the Crystal Sphere minigame finishes."""
     try:
         return await _mp_post({"action": "crystal_sphere_proceed"})
+    except Exception as e:
+        return _handle_error(e)
+
+
+# ---------------------------------------------------------------------------
+# Testing
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def dev_console(command: str) -> str:
+    """[Testing] Run a command in the game's built-in developer console.
+
+    This MUTATES GAME STATE directly (spawns fights, applies powers, deals
+    damage, adds relics, ...) and bypasses normal game rules. It is meant for
+    testing mods and game behavior, not for normal play. Debug commands used
+    during a run mark that run as debug, so the game skips its metrics upload.
+    Works from the menu, singleplayer, and multiplayer; networked commands in
+    co-op are synced through the game's own action queue.
+
+    Returns JSON with `success`, `output` (the console's message, BBCode
+    stripped), and, for async commands such as `fight`, `task_status`
+    ("completed", "pending", "faulted", or "canceled").
+
+    Run `help` to list every command, or `help <command>` for its usage.
+    IDs are model IDs in SCREAMING_SNAKE_CASE (as shown in game state `id`
+    fields). Target index 0 is the player; enemies start at 1.
+
+    Examples:
+      - `power BUFFER_POWER 2 0`: give the player 2 Buffer
+        (syntax: power <id> <amount> <target-index>).
+      - `damage 10 1`: deal 10 damage to the first enemy
+        (syntax: damage <amount> [target-index]; no index hits all enemies).
+      - `block 15 0`: give the player 15 block
+        (syntax: block <amount> [target-index]).
+      - `fight AXEBOTS_NORMAL`: jump to that encounter
+        (syntax: fight <encounter-id> [rng-seed]).
+
+    Args:
+        command: One console command line, e.g. "power BUFFER_POWER 2 0".
+            Must be non-empty, a single line, and at most 500 characters.
+    """
+    try:
+        return await _dev_console_post(command)
     except Exception as e:
         return _handle_error(e)
 
