@@ -100,7 +100,7 @@ Add the server to your AI client's MCP config:
 
 Restart your Claude session after adding the config. To verify the MCP server is working, ask Claude to call `get_game_state` — with the game running, it should return the current game state.
 
-The MCP server accepts `--host` and `--port` options if you need non-default settings.
+The MCP server accepts `--host` and `--port` options if you need non-default settings. The mod reads its port from `STS2_MCP.conf`; the `STS2_MCP_PORT` environment variable overrides it, so two game instances on one machine (for example a local co-op test with `--fastmp`) can each serve on their own port.
 
 Flag `--no-trust-env` can be used to disable `requests` from picking up proxy settings from the environment, which can cause connection issues if you are running the server in a container.
 
@@ -123,6 +123,19 @@ The MCP server exposes the same profile data through `get_profile()`, `get_compe
 ### Developer Console (testing)
 
 `POST /api/v1/dev_console` (MCP tool: `dev_console(command)`) runs one command through the game's built-in developer console, with debug commands enabled, and returns its `success` flag and `output` text. It works from the menu, in singleplayer, and in multiplayer. It mutates game state directly, so it is meant for testing (for example, setting up a fight to test another mod), not for normal play. Examples: `help`, `power BUFFER_POWER 2 0`, `damage 10 1`, `block 15 0`, `fight AXEBOTS_NORMAL`. See [docs/raw-full.md](docs/raw-full.md#developer-console-testing) for syntax and the response shape.
+
+### Local co-op testing
+
+Two game instances on one machine can play co-op through the game's debug multiplayer test scene, driven entirely through the API:
+
+1. Launch two instances. Give the second its own API port with the `STS2_MCP_PORT` environment variable (for example `STS2_MCP_PORT=15527`), and point a second MCP server at it with `--port 15527`. A copy launched outside Steam needs a `steam_appid.txt` next to the game executable.
+2. Wait about 20 seconds after each launch before opening the scene: opening it while the game is still starting up triggers the game's fatal startup error.
+3. In each instance run `dev_console("multiplayer test")`. The state then reports `menu_screen: "multiplayer_test"` with a `multiplayer_test` block (`ip`, `id`, `port`, `status`, `role`, `net_id`, `players`, `selected_character`).
+4. In instance A: `menu_select("host")`.
+5. In instance B: `menu_select("set_id", value="1001")` (any id different from the host's; the field is the instance's net id, not a port), optionally `menu_select("set_ip", value="127.0.0.1")`, then `menu_select("join")`.
+6. In each instance pick a character with `menu_select("character_<ID>")`, then `menu_select("ready")`. The run starts once everyone is ready; use the `mp_*` tools from then on.
+
+`disconnect` leaves the lobby and `back` returns to the main menu. The scene's Clear Cloud Saves and replay load/save buttons are intentionally not exposed because they delete or write files.
 
 ## For Developers
 

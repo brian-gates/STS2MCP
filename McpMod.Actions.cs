@@ -1234,7 +1234,7 @@ public static partial class McpMod
         return null;
     }
 
-    internal static Dictionary<string, object?> ExecuteMenuSelect(string option, string? seed = null)
+    internal static Dictionary<string, object?> ExecuteMenuSelect(string option, string? seed = null, string? value = null)
     {
         option = option.Trim();
 
@@ -1426,6 +1426,12 @@ public static partial class McpMod
             }
             return Error($"Unknown timeline option: {option}. Use: advance, back");
         }
+
+        // Debug multiplayer test scene (dev console `multiplayer test`): set_ip / set_id
+        // take `value`; host, join, ready, character_<ID>, disconnect, back.
+        var multiplayerTest = FindVisibleMultiplayerTest(tree.Root);
+        if (multiplayerTest != null)
+            return ExecuteMultiplayerTestMenuOption(multiplayerTest, option, value);
 
         // Multiplayer Join Friend screen — friend list, refresh, back, or join_<index>/<player_id>.
         var joinScreen = FindFirst<NJoinFriendScreen>(tree.Root);

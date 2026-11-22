@@ -55,6 +55,19 @@ public static partial class McpMod
 
     private static int LoadPort()
     {
+        // STS2_MCP_PORT overrides the config file, so two game instances on one machine (e.g. a local co-op test
+        // through the game's multiplayer test scene) can each serve on their own port.
+        string? envPort = System.Environment.GetEnvironmentVariable("STS2_MCP_PORT");
+        if (!string.IsNullOrWhiteSpace(envPort))
+        {
+            if (int.TryParse(envPort, out int fromEnv) && fromEnv is > 0 and <= 65535)
+            {
+                GD.Print($"[STS2 MCP] Using port {fromEnv} from STS2_MCP_PORT");
+                return fromEnv;
+            }
+            GD.PrintErr($"[STS2 MCP] Ignoring invalid STS2_MCP_PORT '{envPort}' (expected 1-65535); using the configured port");
+        }
+
         try
         {
             string? modDir = Path.GetDirectoryName(
@@ -386,7 +399,10 @@ public static partial class McpMod
             {
                 var option = parsed.TryGetValue("option", out var optElem) ? optElem.GetString() ?? "" : "";
                 var seed = parsed.TryGetValue("seed", out var seedElem) ? seedElem.GetString() : null;
-                var resultTask = RunOnMainThread(() => ExecuteMenuSelect(option, seed));
+                var value = parsed.TryGetValue("value", out var valueElem) && valueElem.ValueKind != JsonValueKind.Null
+                    ? valueElem.ToString()
+                    : null;
+                var resultTask = RunOnMainThread(() => ExecuteMenuSelect(option, seed, value));
                 var result = resultTask.GetAwaiter().GetResult();
                 SendJson(response, result);
             }
@@ -484,7 +500,10 @@ public static partial class McpMod
             {
                 var option = parsed.TryGetValue("option", out var optElem) ? optElem.GetString() ?? "" : "";
                 var seed = parsed.TryGetValue("seed", out var seedElem) ? seedElem.GetString() : null;
-                var resultTask = RunOnMainThread(() => ExecuteMenuSelect(option, seed));
+                var value = parsed.TryGetValue("value", out var valueElem) && valueElem.ValueKind != JsonValueKind.Null
+                    ? valueElem.ToString()
+                    : null;
+                var resultTask = RunOnMainThread(() => ExecuteMenuSelect(option, seed, value));
                 var result = resultTask.GetAwaiter().GetResult();
                 SendJson(response, result);
             }

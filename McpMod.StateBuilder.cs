@@ -78,6 +78,12 @@ public static partial class McpMod
             // Detect which menu screen is active
             if (tree?.Root != null)
             {
+                // Debug multiplayer test scene (dev console `multiplayer test`). It
+                // replaces the main menu, so detect it before the submenus.
+                var multiplayerTest = FindVisibleMultiplayerTest(tree.Root);
+                if (multiplayerTest != null)
+                    AddMultiplayerTestMenuState(result, multiplayerTest);
+
                 if (!result.ContainsKey("menu_screen"))
                 {
                 // Check for singleplayer submenu (Standard / Daily / Custom)

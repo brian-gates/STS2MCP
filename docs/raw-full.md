@@ -207,6 +207,7 @@ Menu sub-screens expose their own options:
 - `tutorial_prompt`: `no`, `yes`
 - `popup`: advertised popup button labels, normalized to lowercase words such as `ignore` or `back`
 - `timeline`: `advance`, `back`
+- `multiplayer_test` (debug scene from the dev console command `multiplayer test`): `set_ip` / `set_id` (with `value`), `host`, `join`, `character_<ID>`, `ready`, `disconnect`, `back`. The state adds a `multiplayer_test` block: `ip`, `id` (this instance's net id), `port` (fixed), `status` (`idle` / `connecting` / `hosting` / `joined` / `starting_run`), `characters`, `selected_character`, `pending_character` (a character chosen before host/join; it is applied automatically once the lobby exists), and once in a lobby `role`, `net_id`, `connected`, `seed`, `ascension`, `game_mode`, and `players` (`id`, `slot`, `character`, `ready`, `local`). Clear Cloud Saves and replay load/save are intentionally not exposed. See the README's Local co-op testing section.
 
 The `multiplayer` submenu is gated on whether a multiplayer save exists: with no save, `host` is shown and `load` / `abandon` are hidden; with a save, those are shown and `host` is hidden. `abandon` opens a vertical popup — the next state turn surfaces the popup's `confirm` / `cancel` options, not a transition.
 
@@ -1234,6 +1235,7 @@ On `character_select` and `custom_run`, `ascension_up` / `ascension_down` move t
 |---|---|---|---|
 | `option` | string | Yes | One of the current state's advertised menu options. Matching is case-insensitive. |
 | `seed` | string | No | Only supported in menu contexts that expose a real seeded flow — `custom_run` (SP and MP host), MP lobbies, daily. Standard singleplayer character select returns an error without starting a run when `seed` is supplied. |
+| `value` | string | No | Text for options that set a field: `set_ip` / `set_id` on `multiplayer_test`. |
 
 `game_over` advertises only `main_menu`. `continue` is not actionable on that screen and returns an error.
 If `timeline` is blocked by pending obtained epochs, `menu_select` returns an error with `manual_action_required: true` and `pending_epoch_ids` instead of opening Timeline.
